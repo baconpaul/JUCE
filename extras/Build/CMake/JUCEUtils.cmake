@@ -1933,7 +1933,9 @@ function(juce_set_clap_sdk_path path)
 
     add_library(juce_clap_sdk INTERFACE IMPORTED GLOBAL)
 
-    message( STATUS "Setup Clap Here Paul!!" )
+    add_subdirectory(${path})
+    target_link_libraries(juce_clap_sdk INTERFACE clap-core)
+    target_link_libraries(juce_clap_sdk INTERFACE clap-plugin-core)
 endfunction()
 
 function(juce_set_vst3_sdk_path path)
