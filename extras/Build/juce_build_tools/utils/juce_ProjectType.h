@@ -76,6 +76,7 @@ namespace build_tools
                 AudioUnitv3PlugIn = 15,
                 StandalonePlugIn  = 16,
                 UnityPlugIn       = 17,
+                ClapPlugIn        = 18,
 
                 SharedCodeTarget  = 20, // internal
                 AggregateTarget   = 21,
@@ -129,6 +130,7 @@ namespace build_tools
                 if (name == "Dynamic Library") return Type::DynamicLibrary;
                 if (name == "VST") return Type::VSTPlugIn;
                 if (name == "VST3") return Type::VST3PlugIn;
+                if (name == "CLAP") return Type::ClapPlugIn;
                 if (name == "AU") return Type::AudioUnitPlugIn;
                 if (name == "Standalone Plugin") return Type::StandalonePlugIn;
                 if (name == "AUv3 AppExtension") return Type::AudioUnitv3PlugIn;
@@ -152,6 +154,7 @@ namespace build_tools
                     case DynamicLibrary:    return sharedLibraryOrDLL;
                     case VSTPlugIn:         return pluginBundle;
                     case VST3PlugIn:        return pluginBundle;
+                    case ClapPlugIn:        return pluginBundle;
                     case AudioUnitPlugIn:   return pluginBundle;
                     case StandalonePlugIn:  return executable;
                     case AudioUnitv3PlugIn: return macOSAppex;

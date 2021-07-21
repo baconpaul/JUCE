@@ -59,6 +59,10 @@ define_property(TARGET PROPERTY JUCE_VST_COPY_DIR INHERITED
     BRIEF_DOCS "Install location for VST2 plugins"
     FULL_DOCS "This is where the plugin will be copied if plugin copying is enabled")
 
+define_property(TARGET PROPERTY JUCE_CLAP_COPY_DIR INHERITED
+        BRIEF_DOCS "Install location for CLAP plugins"
+        FULL_DOCS "This is where the plugin will be copied if plugin copying is enabled")
+
 define_property(TARGET PROPERTY JUCE_VST3_COPY_DIR INHERITED
     BRIEF_DOCS "Install location for VST3 plugins"
     FULL_DOCS "This is where the plugin will be copied if plugin copying is enabled")
@@ -98,6 +102,7 @@ endif()
 function(_juce_set_default_properties)
     if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         set_property(GLOBAL PROPERTY JUCE_VST_COPY_DIR  "$ENV{HOME}/Library/Audio/Plug-Ins/VST")
+        set_property(GLOBAL PROPERTY JUCE_CLAP_COPY_DIR  "$ENV{HOME}/Library/Audio/Plug-Ins/Clap")
         set_property(GLOBAL PROPERTY JUCE_VST3_COPY_DIR "$ENV{HOME}/Library/Audio/Plug-Ins/VST3")
         set_property(GLOBAL PROPERTY JUCE_AU_COPY_DIR   "$ENV{HOME}/Library/Audio/Plug-Ins/Components")
         set_property(GLOBAL PROPERTY JUCE_AAX_COPY_DIR  "/Library/Application Support/Avid/Audio/Plug-Ins")
@@ -110,11 +115,13 @@ function(_juce_set_default_properties)
             set(prefix "$ENV{CommonProgramFiles\(x86\)}")
         endif()
 
+        set_property(GLOBAL PROPERTY JUCE_CLAP_COPY_DIR "${prefix}/Clap")
         set_property(GLOBAL PROPERTY JUCE_VST3_COPY_DIR "${prefix}/VST3")
         set_property(GLOBAL PROPERTY JUCE_AAX_COPY_DIR  "${prefix}/Avid/Audio/Plug-Ins")
     elseif((CMAKE_SYSTEM_NAME STREQUAL "Linux") OR (CMAKE_SYSTEM_NAME MATCHES ".*BSD"))
         set_property(GLOBAL PROPERTY JUCE_VST_COPY_DIR  "$ENV{HOME}/.vst")
         set_property(GLOBAL PROPERTY JUCE_VST3_COPY_DIR "$ENV{HOME}/.vst3")
+        set_property(GLOBAL PROPERTY JUCE_CLAP_COPY_DIR "$ENV{HOME}/.clap")
     endif()
 endfunction()
 
@@ -910,6 +917,21 @@ function(_juce_set_plugin_target_properties shared_code_target kind)
         endif()
 
         _juce_set_copy_properties(${shared_code_target} ${target_name} "${output_path}" JUCE_VST_COPY_DIR)
+    elseif(kind STREQUAL "CLAP")
+        set_target_properties(${target_name} PROPERTIES
+                BUNDLE_EXTENSION clap
+                BUNDLE TRUE
+                XCODE_ATTRIBUTE_WRAPPER_EXTENSION clap
+                XCODE_ATTRIBUTE_LIBRARY_STYLE Bundle
+                XCODE_ATTRIBUTE_GENERATE_PKGINFO_FILE YES)
+
+        set(output_path "$<TARGET_FILE:${target_name}>")
+
+        if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+            set(output_path "$<TARGET_BUNDLE_DIR:${target_name}>")
+        endif()
+
+        _juce_set_copy_properties(${shared_code_target} ${target_name} "${output_path}" JUCE_CLAP_COPY_DIR)
     elseif(kind STREQUAL "AU")
         set_target_properties(${target_name} PROPERTIES
             BUNDLE_EXTENSION component
@@ -1007,6 +1029,8 @@ function(_juce_get_plugin_kind_name kind out_var)
         set(${out_var} "VST" PARENT_SCOPE)
     elseif(kind STREQUAL "VST3")
         set(${out_var} "VST3" PARENT_SCOPE)
+    elseif(kind STREQUAL "CLAP")
+        set(${out_var} "CLAP" PARENT_SCOPE)
     endif()
 endfunction()
 
@@ -1105,6 +1129,8 @@ function(_juce_configure_plugin_targets target)
         message(FATAL_ERROR "Use juce_set_vst2_sdk_path to set up the VST sdk before adding VST targets")
     elseif((AAX IN_LIST active_formats) AND (NOT TARGET juce_aax_sdk))
         message(FATAL_ERROR "Use juce_set_aax_sdk_path to set up the AAX sdk before adding AAX targets")
+    elseif((CLAP IN_LIST active_formats) AND (NOT TARGET juce_clap_sdk))
+        message(FATAL_ERROR "Use juce_set_clap_sdk_path to set up the CLAP sdk before adding CLAP targets")
     endif()
 
     _juce_add_standard_defs(${target})
@@ -1512,6 +1538,7 @@ function(_juce_initialise_target target)
 
         VST_COPY_DIR
         VST3_COPY_DIR
+        CLAP_COPY_DIR
         AAX_COPY_DIR
         AU_COPY_DIR
         UNITY_COPY_DIR
@@ -1556,6 +1583,7 @@ function(_juce_initialise_target target)
         COMPANY_COPYRIGHT
         VST_COPY_DIR
         VST3_COPY_DIR
+        CLAP_COPY_DIR
         AU_COPY_DIR
         AAX_COPY_DIR
         UNITY_COPY_DIR
@@ -1579,6 +1607,7 @@ function(_juce_initialise_target target)
     target_include_directories(${target} PRIVATE
         $<TARGET_PROPERTY:${target},JUCE_GENERATED_SOURCES_DIRECTORY>)
     target_link_libraries(${target} PUBLIC $<$<TARGET_EXISTS:juce_vst2_sdk>:juce_vst2_sdk>)
+    target_link_libraries(${target} PUBLIC $<$<TARGET_EXISTS:juce_clap_sdk>:juce_clap_sdk>)
 
     get_target_property(is_pluginhost_au ${target} JUCE_PLUGINHOST_AU)
 
@@ -1746,6 +1775,10 @@ function(juce_add_pip header)
             list(APPEND extra_formats VST)
         endif()
 
+        if(TARGET juce_clap_sdk)
+            list(APPEND extra_formats CLAP)
+        endif()
+
         # Standalone plugins might want to access the mic
         list(APPEND extra_target_args MICROPHONE_PERMISSION_ENABLED TRUE)
 
@@ -1885,6 +1918,22 @@ function(juce_set_vst2_sdk_path path)
     target_include_directories(juce_vst2_sdk INTERFACE
         $<TARGET_PROPERTY:juce::juce_vst3_headers,INTERFACE_INCLUDE_DIRECTORIES>
         "${path}")
+endfunction()
+
+function(juce_set_clap_sdk_path path)
+    if(TARGET juce_clap_sdk)
+        message(FATAL_ERROR "juce_set_clap_sdk_path should only be called once")
+    endif()
+
+    _juce_make_absolute(path)
+
+    if(NOT EXISTS "${path}")
+        message(FATAL_ERROR "Could not find CLAP SDK at the specified path: ${path}")
+    endif()
+
+    add_library(juce_clap_sdk INTERFACE IMPORTED GLOBAL)
+
+    message( STATUS "Setup Clap Here Paul!!" )
 endfunction()
 
 function(juce_set_vst3_sdk_path path)
