@@ -29,6 +29,8 @@
 
 #include "../utility/juce_IncludeSystemHeaders.h"
 #include <juce_core/juce_core.h>
+#include <unordered_map>
+#include <unordered_set>
 
 
 #ifdef PRAGMA_ALIGN_SUPPORTED
@@ -119,7 +121,40 @@ class JuceCLAPWrapper  : public AudioProcessorListener,
 {
 public:
     static clap_plugin_descriptor desc;
-    JuceCLAPWrapper(const clap_host *host) : clap::Plugin(&desc, host) {}
+    AudioProcessor *processor;
+    JuceCLAPWrapper(const clap_host *host, AudioProcessor *p) : clap::Plugin(&desc, host), processor(p) {
+        // I am sure we have to do some bus work here
+
+        processor->setRateAndBufferSizeDetails(0,0);
+        processor->setPlayHead(this);
+        processor->addListener(this);
+
+#if JUCE_FORCE_USE_LEGACY_PARAM_IDS
+#ERROR "CLAP support for FORCE_UCE_LEGACY_PARAM_IDS not in place"
+#else
+        const bool forceLegacyParamIDs = false;
+#endif
+
+        juceParameters.update (*processor, forceLegacyParamIDs);
+        auto numParameters = juceParameters.getNumParameters();
+
+        int i = 0;
+        for (auto* juceParam : juceParameters.params)
+        {
+            uint32_t clap_id = generateClapIDForJuceParam(juceParam);
+
+            allParams.insert(clap_id);
+            paramMap[clap_id] = juceParam;
+        }
+    }
+
+    uint32_t generateClapIDForJuceParam(AudioProcessorParameter* param) const {
+        auto juceParamID = LegacyAudioParameter::getParamID (param, false);
+        auto clap_id = static_cast<uint32_t>(juceParamID.hashCode());
+        return clap_id;
+    }
+    std::unordered_map<uint32_t, AudioProcessorParameter *> paramMap;
+    std::unordered_set<uint32_t> allParams;
 
     void audioProcessorParameterChanged (AudioProcessor*, int index, float newValue) override {}
     void audioProcessorChanged(AudioProcessor *processor, const ChangeDetails &details) override {}
@@ -132,6 +167,55 @@ public:
 
     void parameterGestureChanged (int, bool) override {}
     void timerCallback() override {};
+
+    /* CLAP API */
+    uint32_t audioPortsCount(bool isInput) const noexcept override {
+        return processor->getBusCount(isInput);
+    }
+    bool audioPortsInfo(uint32_t index, bool isInput,
+                                  clap_audio_port_info *info) const noexcept override
+    {
+        // For now hardcode to stereo out. Fix this obviously.
+        if (isInput || index != 0)
+            return false;
+
+        info->id = 0;
+        strncpy(info->name, "main", sizeof(info->name));
+        info->is_main = true;
+        info->is_cv = false;
+        info->sample_size = 32;
+        info->in_place = true;
+        info->channel_count = 2;
+        info->channel_map = CLAP_CHMAP_STEREO;
+        return true;
+    }
+
+    bool implementsParams() const noexcept override { return true; }
+    bool isValidParamId(clap_id paramId) const noexcept override {
+        return allParams.find(paramId) != allParams.end();
+    }
+    uint32_t paramsCount() const noexcept override {
+        return allParams.size();
+    }
+    bool paramsInfo(int32_t paramIndex, clap_param_info *info) const noexcept override {
+        auto pbi = juceParameters.params[paramIndex];
+
+        info->id = generateClapIDForJuceParam(pbi);
+        strncpy(info->name, pbi->getName(CLAP_NAME_SIZE).toRawUTF8(), CLAP_NAME_SIZE);
+        strncpy(info->module, "", CLAP_NAME_SIZE);
+        info->min_value = 0; // FIXME
+        info->max_value = 1;
+        info->default_value = pbi->getDefaultValue();
+        return true;
+    }
+
+    bool paramsValue(clap_id paramId, double *value) noexcept override {
+        auto pbi = paramMap[paramId];
+        *value = pbi->getValue();
+        return true;
+    }
+
+    LegacyAudioParametersWrapper juceParameters;
 
 #if 0
 private:
@@ -2053,8 +2137,9 @@ namespace ClapAdapter {
                       << JuceCLAPWrapper::desc.id << "'" << std::endl;
             return nullptr;
         }
-        auto p = new JuceCLAPWrapper(host);
-        return p->clapPlugin();
+        auto* processor = createPluginFilterOfType (AudioProcessor::wrapperType_VST);
+        auto* wrapper = new JuceCLAPWrapper(host, processor);
+        return wrapper->clapPlugin();
     }
 
     static uint32_t clap_get_invalidation_sources_count(void) { return 0; }
